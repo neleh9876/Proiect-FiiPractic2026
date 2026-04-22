@@ -1,0 +1,100 @@
+---
+- name: Configurații comune pentru ambele mașini
+  hosts: all
+  become: yes
+  tasks:
+    - name: Dezactivează și oprește firewalld
+      ansible.builtin.service:
+        name: firewalld
+        state: stopped
+        enabled: no
+
+    - name: Setează fusul orar pe Europe/Bucharest
+      ansible.builtin.command: timedatectl set-timezone Europe/Bucharest
+
+    - name: Setează PermitRootLogin pe prohibit-password
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^PermitRootLogin'
+        line: 'PermitRootLogin prohibit-password'
+      notify: Restart SSH
+
+    - name: Dezactivează SELinux permanent în config
+      ansible.builtin.lineinfile:
+        path: /etc/selinux/config
+        regexp: '^SELINUX='
+        line: 'SELINUX=disabled'
+
+    - name: Oprește SELinux temporar (până la reboot)
+      ansible.builtin.command: setenforce 0
+      ignore_errors: yes
+
+    - name: Adaugă repository-ul Docker
+      ansible.builtin.command: dnf config-manager --add-repo=https://download.docker.com/linux/centos/docker-ce.repo
+      args:
+        creates: /etc/yum.repos.d/docker-ce.repo
+
+    - name: Instalează Docker
+      ansible.builtin.dnf:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+        state: present
+
+    - name: Pornește și activează serviciul Docker
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Copiază Root CA-ul pe mașini
+      ansible.builtin.copy:
+        src: /usr/share/easy-rsa/3/pki/ca.crt
+        dest: /etc/pki/ca-trust/source/anchors/ca.crt
+      notify: Update CA Trust
+
+  handlers:
+    - name: Restart SSH
+      ansible.builtin.service:
+        name: sshd
+        state: restarted
+
+    - name: Update CA Trust
+      ansible.builtin.command: update-ca-trust
+
+- name: Configurații specifice pentru GitLab
+  hosts: gitlab
+  become: yes
+  tasks:
+    - name: Descarcă scriptul pentru repository GitLab CE
+      ansible.builtin.get_url:
+        url: https://packages.gitlab.com/install/repositories/gitlab/gitlab-ce/script.rpm.sh
+        dest: /tmp/gitlab-ce-script.sh
+        mode: '0755'
+
+    - name: Rulează scriptul de repository GitLab CE
+      ansible.builtin.command: /tmp/gitlab-ce-script.sh
+      args:
+        creates: /etc/yum.repos.d/gitlab_gitlab-ce.repo
+
+    - name: Instalează GitLab CE
+      ansible.builtin.dnf:
+        name: gitlab-ce
+        state: present
+
+    - name: Descarcă scriptul pentru repository GitLab Runner
+      ansible.builtin.get_url:
+        url: https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.rpm.sh
+        dest: /tmp/gitlab-runner-script.sh
+        mode: '0755'
+
+    - name: Rulează scriptul de repository GitLab Runner
+      ansible.builtin.command: /tmp/gitlab-runner-script.sh
+      args:
+        creates: /etc/yum.repos.d/runner_gitlab-runner.repo
+
+    - name: Instalează GitLab Runner
+      ansible.builtin.dnf:
+        name: gitlab-runner
+        state: present

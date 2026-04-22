@@ -1,0 +1,36 @@
+ ---
+- name: Deploy Application to App Machine
+  hosts: app
+  become: yes
+  vars:
+    container_name: "fii-practic-app"
+    image_name: "gitlab.fiipractic.lan:5050/root/devops-app"
+
+  tasks:
+    - name: Login to GitLab Container Registry
+      community.docker.docker_login:
+        registry_url: "gitlab.fiipractic.lan:5050"
+        username: "root"
+        password: "glpat-KSuWGPCi6JgMD90NVqREb286MQp10jMH.01.0w0xwwlhx"
+        reauthorize: yes
+
+    - name: Stop and remove existing container
+      community.docker.docker_container:
+        name: "{{ container_name }}"
+        state: absent
+
+    - name: Remove old docker image
+      community.docker.docker_image:
+        name: "{{ image_name }}"
+        tag: latest
+        state: absent
+
+    - name: Pull and Run new container
+      community.docker.docker_container:
+        name: "{{ container_name }}"
+        image: "{{ image_name }}:latest"
+        state: started
+        pull: yes
+        restart_policy: always
+        ports:
+          - "8080:8080"
